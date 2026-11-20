@@ -80,10 +80,21 @@ fn local_information(revision: u16, source_mac: [u8; 6]) -> Vec<u8> {
     information.push(1);
     information.extend_from_slice(&revision.to_be_bytes());
     information.push(0);
-    // Passive mode advertises Link Event support.
-    information.push(0x08);
+    // Link Event Notification is not implemented; do not advertise support.
+    information.push(0x00);
     information.extend_from_slice(&1500u16.to_be_bytes());
     information.extend_from_slice(&source_mac[..3]);
     information.extend_from_slice(&[0; 4]);
     information
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_information_does_not_advertise_unimplemented_link_events() {
+        let information = local_information(1, [0; 6]);
+        assert_eq!(information[6] & 0x08, 0);
+    }
 }
