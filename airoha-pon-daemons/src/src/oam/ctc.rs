@@ -87,6 +87,14 @@ struct VariableOutcome {
     events: Vec<String>,
 }
 
+struct SetItem {
+    object: Option<Object>,
+    object_pending: bool,
+    branch: u8,
+    leaf: u16,
+    value: Vec<u8>,
+}
+
 pub struct CtcSession {
     state: DiscoveryState,
     selected_version: Option<u8>,
@@ -403,11 +411,12 @@ impl CtcSession {
     }
 
     fn handle_set(&mut self, data: &[u8]) -> Result<VariableOutcome, &'static str> {
+        // Parse the complete request before evaluating any SET item. A malformed
+        // trailing TLV must not leave earlier items partially applied.
         let mut offset = 0;
         let mut object = None;
-        let mut object_written = false;
-        let mut response = Writer::new();
-        let mut events = Vec::new();
+        let mut object_pending = false;
+        let mut items = Vec::new();
 
         while offset < data.len() {
             let branch = data[offset];
@@ -418,7 +427,7 @@ impl CtcSession {
                 let parsed = parse_object(&data[offset..])?;
                 offset += parsed.encoded_len;
                 object = Some(parsed);
-                object_written = false;
+                object_pending = true;
                 continue;
             }
             if !is_attribute_or_action(branch) || offset + 3 > data.len() {
@@ -443,22 +452,36 @@ impl CtcSession {
                 (&data[offset + 4..offset + 4 + width], 4 + width)
             };
 
-            let result = self.set_value(branch, leaf, object, value);
-            events.push(format_variable_event(
-                "SET",
+            items.push(SetItem {
                 object,
+                object_pending,
                 branch,
                 leaf,
-                value.len(),
-                result,
-                Some(value),
-            ));
-            if object.is_some() && !object_written {
-                encode_object(&mut response, object.expect("object was checked"));
-                object_written = true;
-            }
-            encode_result_tlv(&mut response, branch, leaf, result);
+                value: value.to_vec(),
+            });
+            object_pending = false;
             offset += consumed;
+        }
+
+        let mut response = Writer::new();
+        let mut events = Vec::with_capacity(items.len());
+        for item in items {
+            let result = self.set_value(item.branch, item.leaf, item.object, &item.value);
+            events.push(format_variable_event(
+                "SET",
+                item.object,
+                item.branch,
+                item.leaf,
+                item.value.len(),
+                result,
+                Some(&item.value),
+            ));
+            if item.object_pending {
+                if let Some(object) = item.object {
+                    encode_object(&mut response, object);
+                }
+            }
+            encode_result_tlv(&mut response, item.branch, item.leaf, result);
         }
         response.u8(0);
         Ok(VariableOutcome {
