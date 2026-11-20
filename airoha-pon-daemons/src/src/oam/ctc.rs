@@ -354,6 +354,7 @@ impl CtcSession {
         source_mac: [u8; 6],
     ) -> Result<VariableOutcome, &'static str> {
         let mut offset = 0;
+        let mut terminated = false;
         let mut object = None;
         let mut object_written = false;
         let mut response = Writer::new();
@@ -363,6 +364,7 @@ impl CtcSession {
             let branch = data[offset];
             if branch == 0 {
                 validate_zero_padding(data, offset)?;
+                terminated = true;
                 break;
             }
             if branch == OBJECT_BRANCH_V1 || branch == OBJECT_BRANCH_V2 {
@@ -404,6 +406,10 @@ impl CtcSession {
             }
             offset += 3;
         }
+        if !terminated {
+            return Err("CTC variable request is missing its terminator");
+        }
+
         response.u8(0);
         Ok(VariableOutcome {
             response: response.into_vec(),
@@ -415,6 +421,7 @@ impl CtcSession {
         // Parse the complete request before evaluating any SET item. A malformed
         // trailing TLV must not leave earlier items partially applied.
         let mut offset = 0;
+        let mut terminated = false;
         let mut object = None;
         let mut object_pending = false;
         let mut items = Vec::new();
@@ -423,6 +430,7 @@ impl CtcSession {
             let branch = data[offset];
             if branch == 0 {
                 validate_zero_padding(data, offset)?;
+                terminated = true;
                 break;
             }
             if branch == OBJECT_BRANCH_V1 || branch == OBJECT_BRANCH_V2 {
@@ -485,6 +493,10 @@ impl CtcSession {
             }
             encode_result_tlv(&mut response, item.branch, item.leaf, result);
         }
+        if !terminated {
+            return Err("CTC variable request is missing its terminator");
+        }
+
         response.u8(0);
         Ok(VariableOutcome {
             response: response.into_vec(),
@@ -760,6 +772,25 @@ mod tests {
     fn get_rejects_nonzero_bytes_after_terminator() {
         let mut session = CtcSession::new();
         let request = [EXTENDED_ATTRIBUTE, 0x00, 0x22, 0x00, 0x7f];
+
+        assert!(session
+            .handle_get(&request, &OamConfig::default(), [0; 6])
+            .is_err());
+    }
+
+    #[test]
+    fn set_rejects_a_missing_terminator() {
+        let mut session = CtcSession::new();
+        let request = [EXTENDED_ATTRIBUTE, 0x00, 0x22, 0x01, 0x00];
+
+        assert!(session.handle_set(&request).is_err());
+        assert_eq!(session.unsupported_requests, 0);
+    }
+
+    #[test]
+    fn get_rejects_a_missing_terminator() {
+        let mut session = CtcSession::new();
+        let request = [EXTENDED_ATTRIBUTE, 0x00, 0x22];
 
         assert!(session
             .handle_get(&request, &OamConfig::default(), [0; 6])
