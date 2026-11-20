@@ -36,6 +36,7 @@ const LEAF_ONU_CAPABILITIES_2: u16 = 0x0007;
 const LEAF_ONU_CAPABILITIES_3: u16 = 0x000c;
 const LEAF_VLAN: u16 = 0x0021;
 
+const SET_OK: u8 = 0x80;
 const BAD_PARAMETERS: u8 = 0x86;
 const NO_RESOURCE: u8 = 0x87;
 
