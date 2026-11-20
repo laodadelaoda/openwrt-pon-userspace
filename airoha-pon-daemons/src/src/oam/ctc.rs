@@ -719,6 +719,8 @@ mod tests {
             0x00,
             0x64,
             0x00,
+            0x00,
+            0x00,
         ];
 
         let outcome = session.handle_set(&request).expect("valid VLAN SET");
