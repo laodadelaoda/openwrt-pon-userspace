@@ -473,6 +473,13 @@ impl CtcSession {
             offset += consumed;
         }
 
+        // Reject an unterminated request before evaluating any SET item.
+        // This preserves the all-or-nothing parser guarantee once SET has
+        // a backend with externally visible side effects.
+        if !terminated {
+            return Err("CTC variable request is missing its terminator");
+        }
+
         let mut response = Writer::new();
         let mut events = Vec::with_capacity(items.len());
         for item in items {
@@ -493,10 +500,6 @@ impl CtcSession {
             }
             encode_result_tlv(&mut response, item.branch, item.leaf, result);
         }
-        if !terminated {
-            return Err("CTC variable request is missing its terminator");
-        }
-
         response.u8(0);
         Ok(VariableOutcome {
             response: response.into_vec(),
