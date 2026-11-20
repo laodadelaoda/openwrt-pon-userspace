@@ -362,6 +362,7 @@ impl CtcSession {
         while offset < data.len() {
             let branch = data[offset];
             if branch == 0 {
+                validate_zero_padding(data, offset)?;
                 break;
             }
             if branch == OBJECT_BRANCH_V1 || branch == OBJECT_BRANCH_V2 {
@@ -421,6 +422,7 @@ impl CtcSession {
         while offset < data.len() {
             let branch = data[offset];
             if branch == 0 {
+                validate_zero_padding(data, offset)?;
                 break;
             }
             if branch == OBJECT_BRANCH_V1 || branch == OBJECT_BRANCH_V2 {
@@ -565,6 +567,13 @@ impl CtcSession {
         let _ = (object, mode, value);
         NO_RESOURCE
     }
+}
+
+fn validate_zero_padding(data: &[u8], terminator_offset: usize) -> Result<(), &'static str> {
+    if data[terminator_offset..].iter().any(|byte| *byte != 0) {
+        return Err("CTC variable request has non-zero data after its terminator");
+    }
+    Ok(())
 }
 
 fn with_org_header(oui: [u8; 3], opcode: u8, data: Vec<u8>) -> Vec<u8> {
@@ -734,6 +743,25 @@ mod tests {
 
         assert!(session.handle_set(&request).is_err());
         assert_eq!(session.unsupported_requests, 0);
+    }
+
+    #[test]
+    fn set_rejects_nonzero_bytes_after_terminator_before_evaluating_items() {
+        let mut session = CtcSession::new();
+        let request = [EXTENDED_ATTRIBUTE, 0x00, 0x22, 0x01, 0x00, 0x00, 0x7f];
+
+        assert!(session.handle_set(&request).is_err());
+        assert_eq!(session.unsupported_requests, 0);
+    }
+
+    #[test]
+    fn get_rejects_nonzero_bytes_after_terminator() {
+        let mut session = CtcSession::new();
+        let request = [EXTENDED_ATTRIBUTE, 0x00, 0x22, 0x00, 0x7f];
+
+        assert!(session
+            .handle_get(&request, &OamConfig::default(), [0; 6])
+            .is_err());
     }
 
     #[test]
