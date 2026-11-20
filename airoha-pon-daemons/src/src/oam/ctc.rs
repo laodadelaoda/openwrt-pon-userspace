@@ -36,7 +36,6 @@ const LEAF_ONU_CAPABILITIES_2: u16 = 0x0007;
 const LEAF_ONU_CAPABILITIES_3: u16 = 0x000c;
 const LEAF_VLAN: u16 = 0x0021;
 
-const SET_OK: u8 = 0x80;
 const BAD_PARAMETERS: u8 = 0x86;
 const NO_RESOURCE: u8 = 0x87;
 
@@ -124,6 +123,14 @@ impl CtcSession {
         let length = tlv[1] as usize;
         if length < 7 || length > tlv.len() || (length - 7) % 4 != 0 {
             return Err("CTC information TLV has an invalid length");
+        }
+
+        // Ignore organization-specific Information TLVs belonging to other vendors.
+        if tlv[2..5] != config.ctc_oui {
+            return Ok(None);
+        }
+        if tlv[7..length].chunks_exact(4).any(|entry| entry[..3] != config.ctc_oui) {
+            return Err("CTC version list contains an unexpected OUI");
         }
 
         let has_version_list = length > 7;
@@ -501,8 +508,8 @@ impl CtcSession {
                 if object.leaf != OBJECT_LEAF_PORT {
                     return Err(BAD_PARAMETERS);
                 }
-                // The HGU reports transparent mode and publishes received Set rules for netifd.
-                Ok(vec![0])
+                // No UNI VLAN backend is connected; do not report a fabricated mode.
+                Err(NO_RESOURCE)
             }
             _ => Err(if leaf == 0x0005 {
                 NO_RESOURCE
@@ -526,13 +533,9 @@ impl CtcSession {
             _ => return BAD_PARAMETERS,
         };
 
-        // The HGU data path preserves OLT-provisioned tags for Linux VLAN and netifd policy.
-        self.vlan = Some(VlanConfiguration {
-            object_index: object.index,
-            mode,
-            raw: value.to_vec(),
-        });
-        SET_OK
+        // No UNI VLAN backend is connected; do not acknowledge an unapplied rule.
+        let _ = (object, mode, value);
+        NO_RESOURCE
     }
 }
 
@@ -661,7 +664,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vlan_set_records_object_leaf_result_and_value() {
+    fn vlan_set_is_rejected_until_the_data_path_can_apply_it() {
         let mut session = CtcSession::new();
         let request = [
             OBJECT_BRANCH_V1,
@@ -687,9 +690,10 @@ mod tests {
         assert_eq!(
             outcome.events[0],
             "CTC SET object=0x36:0x0001:0x00000001 branch=0xc7 leaf=0x0021 \
-             length=5 result=0x80 value=0100000064"
+             length=5 result=0x87 value=0100000064"
         );
-        assert_eq!(session.snapshot().vlan_ids, vec![100]);
+        assert_eq!(session.snapshot().vlan_mode, None);
+        assert!(session.snapshot().vlan_ids.is_empty());
     }
 
     #[test]
@@ -706,4 +710,52 @@ mod tests {
         );
         assert_eq!(session.unsupported_requests, 1);
     }
+    #[test]
+    fn foreign_information_oui_is_ignored_without_advancing_ctc_discovery() {
+        let mut session = CtcSession::new();
+        let config = OamConfig::default();
+        let tlv = [INFO_TYPE_ORGANIZATION_SPECIFIC, 7, 0xaa, 0xbb, 0xcc, 1, 0x21];
+
+        assert!(session.handle_information_tlv(&tlv, &config).unwrap().is_none());
+        assert_eq!(session.snapshot().discovery_state, "passive-wait");
+        assert_eq!(session.snapshot().selected_version, None);
+    }
+
+    #[test]
+    fn vlan_get_is_not_fabricated_without_a_uni_backend() {
+        let session = CtcSession::new();
+        let object = Object {
+            branch: OBJECT_BRANCH_V1,
+            leaf: OBJECT_LEAF_PORT,
+            index: 1,
+            encoded_len: 5,
+        };
+        assert_eq!(
+            session.get_value(
+                EXTENDED_ATTRIBUTE, LEAF_VLAN, Some(object),
+                &super::super::config::OamConfig::default(), [0; 6],
+            ),
+            Err(NO_RESOURCE)
+        );
+    }
+
+
+    #[test]
+    fn ctc_version_list_rejects_foreign_oui_entries() {
+        let mut session = CtcSession::new();
+        let config = super::super::config::OamConfig::default();
+        let tlv = [
+            INFO_TYPE_ORGANIZATION_SPECIFIC, 11,
+            config.ctc_oui[0], config.ctc_oui[1], config.ctc_oui[2],
+            1, 0,
+            0xaa, 0xbb, 0xcc, 0x21,
+        ];
+        assert_eq!(
+            session.handle_information_tlv(&tlv, &config),
+            Err("CTC version list contains an unexpected OUI")
+        );
+        assert_eq!(session.snapshot().discovery_state, "passive-wait");
+    }
+
+
 }
