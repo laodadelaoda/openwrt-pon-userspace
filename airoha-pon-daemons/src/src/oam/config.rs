@@ -104,6 +104,12 @@ impl OamConfig {
                 "ctc_versions is empty",
             ));
         }
+        if !(1..=64).contains(&self.ge_ports) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "ge_ports must be between 1 and 64",
+            ));
+        }
         Ok(())
     }
 
@@ -226,6 +232,34 @@ mod tests {
 
         assert_eq!(oam.vendor_id, b"OWRT");
         assert_eq!(oam.chipset_id, [0x00, 0x00, 0x75, 0x81, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn ge_ports_must_be_between_one_and_sixty_four() {
+        for value in ["0", "65", "255"] {
+            let config = PonConfig::parse(&format!(
+                "config oam 'line0_oam'\\n\\
+                 \\toption line 'line0'\\n\\
+                 \\toption ge_ports '{value}'\\n"
+            ))
+            .unwrap();
+            assert!(OamConfig::from_section(
+                config.linked_section("oam", "line0").unwrap()
+            ).is_err(), "accepted ge_ports={value}");
+        }
+
+        for value in ["1", "4", "64"] {
+            let config = PonConfig::parse(&format!(
+                "config oam 'line0_oam'\\n\\
+                 \\toption line 'line0'\\n\\
+                 \\toption ge_ports '{value}'\\n"
+            ))
+            .unwrap();
+            let oam = OamConfig::from_section(
+                config.linked_section("oam", "line0").unwrap()
+            ).unwrap();
+            assert_eq!(oam.ge_ports, value.parse::<u8>().unwrap());
+        }
     }
 
     #[test]
