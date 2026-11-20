@@ -232,6 +232,7 @@ mod tests {
 
         assert_eq!(oam.vendor_id, b"OWRT");
         assert_eq!(oam.chipset_id, [0x00, 0x00, 0x75, 0x81, 0, 0, 0, 0]);
+        assert_eq!(oam.ge_ports, 1);
     }
 
     #[test]
