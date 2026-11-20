@@ -118,17 +118,21 @@ impl CtcSession {
         tlv: &[u8],
         config: &OamConfig,
     ) -> Result<Option<Vec<u8>>, &'static str> {
-        if tlv.len() < 7 || tlv[0] != INFO_TYPE_ORGANIZATION_SPECIFIC {
-            return Err("CTC information TLV is truncated");
+        if tlv.len() < 5 || tlv[0] != INFO_TYPE_ORGANIZATION_SPECIFIC {
+            return Err("organization-specific Information TLV header is truncated");
         }
         let length = tlv[1] as usize;
-        if length < 7 || length > tlv.len() || (length - 7) % 4 != 0 {
-            return Err("CTC information TLV has an invalid length");
+        if length < 5 || length > tlv.len() {
+            return Err("organization-specific Information TLV has an invalid length");
         }
 
-        // Ignore organization-specific Information TLVs belonging to other vendors.
+        // Other vendors may use a different payload layout; ignore them before
+        // applying CTC-specific version-list validation.
         if tlv[2..5] != config.ctc_oui {
             return Ok(None);
+        }
+        if length < 7 || (length - 7) % 4 != 0 {
+            return Err("CTC information TLV has an invalid length");
         }
         if tlv[7..length].chunks_exact(4).any(|entry| entry[..3] != config.ctc_oui) {
             return Err("CTC version list contains an unexpected OUI");
@@ -756,6 +760,18 @@ mod tests {
             Err("CTC version list contains an unexpected OUI")
         );
         assert_eq!(session.snapshot().discovery_state, "passive-wait");
+    }
+
+
+    #[test]
+    fn short_foreign_information_tlv_is_ignored_before_ctc_validation() {
+        let mut session = CtcSession::new();
+        let config = OamConfig::default();
+        let foreign_tlv = [INFO_TYPE_ORGANIZATION_SPECIFIC, 5, 0xaa, 0xbb, 0xcc];
+
+        assert_eq!(session.handle_information_tlv(&foreign_tlv, &config), Ok(None));
+        assert_eq!(session.snapshot().discovery_state, "passive-wait");
+        assert_eq!(session.snapshot().selected_version, None);
     }
 
 
