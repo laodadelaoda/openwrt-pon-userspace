@@ -237,24 +237,16 @@ mod tests {
     #[test]
     fn ge_ports_must_be_between_one_and_sixty_four() {
         for value in ["0", "65", "255"] {
-            let config = PonConfig::parse(&format!(
-                "config oam 'line0_oam'\n\
-                 \toption line 'line0'\n\
-                 \toption ge_ports '{value}'\\n"
-            ))
-            .unwrap();
+            let input = format!("config oam 'line0_oam'\noption line 'line0'\noption ge_ports '{value}'\n");
+            let config = PonConfig::parse(&input).unwrap();
             assert!(OamConfig::from_section(
                 config.linked_section("oam", "line0").unwrap()
             ).is_err(), "accepted ge_ports={value}");
         }
 
         for value in ["1", "4", "64"] {
-            let config = PonConfig::parse(&format!(
-                "config oam 'line0_oam'\n\
-                 \toption line 'line0'\n\
-                 \toption ge_ports '{value}'\\n"
-            ))
-            .unwrap();
+            let input = format!("config oam 'line0_oam'\noption line 'line0'\noption ge_ports '{value}'\n");
+            let config = PonConfig::parse(&input).unwrap();
             let oam = OamConfig::from_section(
                 config.linked_section("oam", "line0").unwrap()
             ).unwrap();
