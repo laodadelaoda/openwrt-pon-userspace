@@ -725,6 +725,18 @@ mod tests {
     }
 
     #[test]
+    fn malformed_trailing_set_tlv_does_not_evaluate_prior_items() {
+        let mut session = CtcSession::new();
+        let request = [
+            EXTENDED_ATTRIBUTE, 0x00, 0x22, 0x01, 0x00,
+            EXTENDED_ATTRIBUTE,
+        ];
+
+        assert!(session.handle_set(&request).is_err());
+        assert_eq!(session.unsupported_requests, 0);
+    }
+
+    #[test]
     fn unsupported_set_records_the_exact_leaf_and_result() {
         let mut session = CtcSession::new();
         let request = [EXTENDED_ATTRIBUTE, 0x00, 0x22, 0x01, 0x00, 0x00];
